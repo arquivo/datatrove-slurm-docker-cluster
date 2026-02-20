@@ -19,17 +19,55 @@ be processed, which are:
 - **SLURM_HOST_CPUS**: Number of CPUs to use in Slurm's compute node.
 - **SLURM_HOST_MEMORY**: Amount of memory available to use in Slurm's compute  node, in MB.
 - **HOST_INPUT_PATH**: The path to the collection containing WARC files to be processed in the host machine.
-- **HOST_OUTPUT_PATH**: The path where the processing outputs will be written in the host machine.
+- **HOST_OUTPUT_PATH**: The path where the processing outputs will be written in the host machine. Note that two folders will be created in this folder, `filtering_output/` containing the results of only the scraping and filtering stages, and `dedup_output/` containing the final results after deduplication.
 - **HOST_LOGS_PATH**: The path where the processing logs will be written in the host machine.
 - **DATATROVE_TASKS**: Number of total tasks to run in the scraping/filtering portion of the Datatrove pipeline. This is divided by 5 for the deduplication portion.
 - **DATATROVE_WORKERS**: Number of workers to concurrently run tasks in the Datatrove pipeline.
 - **DATATROVE_CPUS_PER_TASK**: Number of CPUs to be used per task in the Datatrove pipeline.
 - **DATATROVE_MEM_PER_CPU_GB**: Memory used per task in the Datatrove pipeline, in GB.
 
+To summarize, in order to test manually, follow the steps below. Note that all commands mentioned should be run in the `slurm-docker-cluster` directory.
+
+- Place the `datatrove_env.tar.gz` environment archive in `slurm-docker-cluster/app/`;
+- Export `SLURM_HOST*` variables and replace in the template conf file with:
+````shell
+export SLURM_HOST_CPUS=16
+export SLURM_HOST_MEMORY=80000
+export CONF_TEMPLATE=template-slurm.conf
+export CONF_OUTPUT=slurm.conf
+envsubst < "$CONF_TEMPLATE" > "$CONF_OUTPUT"
+````
+- Set `HOST*` input, output and logs paths, build and start Docker:
+````shell
+export HOST_INPUT_PATH=/path/to/collection/AWP1
+export HOST_OUTPUT_PATH=/path/to/output/AWP1
+export HOST_LOGS_PATH=/path/to/logs/AWP1
+docker compose build
+docker compose up -d
+````
+- Wait about 30 seconds for Slurm to initialize;
+- Set `DATATROVE*` variables and execute the pipeline (the paths here refer to the internal container so should not be changed):
+````shell
+export DATATROVE_TASKS=10000
+export DATATROVE_WORKERS=32
+export DATATROVE_CPUS_PER_TASK=1
+export DATATROVE_MEM_PER_CPU_GB=2
+docker exec slurmctld bash -c "export PATH='/opt/conda_envs/datatrove_env/bin:$PATH' && sinfo && python /app/datatrove_pipeline.py /app/data/input -t ${DATATROVE_TASKS} -w ${DATATROVE_WORKERS} -c ${DATATROVE_CPUS_PER_TASK} -m ${DATATROVE_MEM_PER_CPU_GB} -l /app/data/logs -o /app/data/output"
+````
+- While running, check the status of the Slurm queue with:
+````shell
+docker exec slurmctld squeue -h | grep normal
+````
+- When the processing is done (the previous command no longer shows anything), stop Docker with:
+````shell
+docker compose down -v
+````
+- The output will be in the path specified in `HOST_OUTPUT_PATH`, containing the `filtering_output/` and `dedup_output/` folders mentioned before.
+
 Testing locally with the RAQ2019 collection (570 GB), using 1000 total tasks and 16 workers, with 2GB of memory and 2 CPUs per task, 
 processing took 5 hours and 34 minutes.
 
-The original README for Slurm Docker Cluster is shown below.
+The original README for Slurm Docker Cluster, which served as a base for this project, is shown below.
 
 # Slurm Docker Cluster
 
